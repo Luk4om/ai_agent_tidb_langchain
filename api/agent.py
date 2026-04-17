@@ -10,8 +10,10 @@ load_dotenv()
 
 # --- คอนฟิกความปลอดภัยสำหรับ SSL ---
 SSL_CA_CONTENT = os.getenv("TIDB_SSL_CA_CONTENT")
-ca_path = "isrgrootx1.pem"
-if SSL_CA_CONTENT and not os.path.exists(ca_path):
+# บังคับใช้ /tmp/ เพื่อให้เขียนไฟล์ได้บน Vercel
+ca_path = "/tmp/isrgrootx1.pem" 
+
+if SSL_CA_CONTENT:
     with open(ca_path, "w") as f:
         f.write(SSL_CA_CONTENT)
 
@@ -24,6 +26,13 @@ embeddings = HuggingFaceEndpointEmbeddings(
     model="sentence-transformers/all-MiniLM-L6-v2"
 )
 
+# --- ตั้งค่าฐานข้อมูล ---
+# ต้องส่ง ca_path เข้าไปใน engine ด้วย
+engine = create_engine(
+    TIDB_CONNECTION_STRING, 
+    connect_args={"ssl": {"ca": ca_path, "ssl-mode": "REQUIRED"}}
+)
+
 vector_store = TiDBVectorStore(
     connection_string=TIDB_CONNECTION_STRING,
     embedding_function=embeddings,
@@ -32,7 +41,6 @@ vector_store = TiDBVectorStore(
 )
 
 retriever = vector_store.as_retriever(search_kwargs={"k": 3})
-engine = create_engine(TIDB_CONNECTION_STRING, connect_args={"ssl": {"ssl-mode": "REQUIRED"}})
 
 # --- Nodes ---
 
@@ -97,21 +105,16 @@ graph.add_node("sql_lookup", sql_lookup)
 graph.add_node("greet_node", greet_node)
 graph.add_node("generate_answer", generate_answer)
 
-graph.set_entry_point("greet_node") # default if needed, but we use conditional
-graph.add_conditional_edges("greet_node", llm_router_tool, { # DUMMY entry just to use router
+graph.set_entry_point("greet_node")
+graph.add_conditional_edges("greet_node", llm_router_tool, {
     "search": "vector_search",
     "sql": "extract_code",
     "greet": "generate_answer"
 })
 
-# ลำดับการไหล
 graph.add_edge("vector_search", "generate_answer")
 graph.add_edge("extract_code", "sql_lookup")
 graph.add_edge("sql_lookup", "generate_answer")
 graph.add_edge("generate_answer", END)
-
-# แก้ไขจุดเริ่มต้นจริง
-graph.set_entry_point("greet_node") 
-# (ปรับให้ง่ายขึ้น: ทุกทางวิ่งไปหา generate_answer)
 
 app = graph.compile()
