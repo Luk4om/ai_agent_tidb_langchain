@@ -1,8 +1,9 @@
 import './globals.css'
 import type { Metadata } from 'next'
+import { Analytics } from "@vercel/analytics/next"
 
 export const metadata: Metadata = {
-  title: 'TiDB AI Assistant',
+  title: 'AI Agent TIDB',
   description: 'AI-powered course recommendation system',
 }
 
@@ -13,7 +14,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="th">
-      <body>{children}</body>
+      <body>
+        {children}
+        <Analytics />
+      </body>
     </html>
   )
 }
