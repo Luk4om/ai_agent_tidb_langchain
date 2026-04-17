@@ -1,0 +1,21 @@
+@import "tailwindcss";
+@plugin "daisyui" {
+  themes: light --default, dark --prefersdark, cupcake;
+}
+
+:root {
+  --font-sans: 'Outfit', sans-serif;
+}
+
+body {
+  background-color: var(--fallback-b1,oklch(var(--b1)));
+  color: var(--fallback-bc,oklch(var(--bc)));
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}

@@ -1,0 +1,10 @@
+fastapi
+langchain
+langchain-community
+langchain-groq
+langchain-huggingface
+langgraph
+sqlalchemy
+pymysql
+python-dotenv
+uvicorn

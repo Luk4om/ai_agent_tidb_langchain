@@ -1,0 +1,32 @@
+# Secrets
+.env
+*.pem
+
+# Python
+__pycache__/
+.venv/
+*.py[cod]
+*$py.class
+api/__pycache__/
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+build/
+.vercel
+*.tsbuildinfo
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
