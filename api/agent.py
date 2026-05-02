@@ -4,6 +4,7 @@ from sqlalchemy import create_engine, text
 from langchain_community.vectorstores import TiDBVectorStore
 from langchain_groq import ChatGroq
 from langchain_huggingface import HuggingFaceEndpointEmbeddings
+from langchain_community.tools import DuckDuckGoSearchRun
 from langgraph.graph import StateGraph, END
 
 load_dotenv()
@@ -41,6 +42,7 @@ vector_store = TiDBVectorStore(
 )
 
 retriever = vector_store.as_retriever(search_kwargs={"k": 3})
+web_search_tool = DuckDuckGoSearchRun()
 
 # --- Nodes ---
 
@@ -89,13 +91,49 @@ def generate_answer(state):
     response = llm.invoke(prompt).content.strip()
     return {"response": response}
 
-def llm_router_tool(state):
+def web_search(state):
+    """ค้นหาข้อมูลจากอินเทอร์เน็ต"""
     query = state["question"]
-    prompt = f"ตอบเพียงคำเดียว (greet, sql, search): {query}"
+    print(f"--- Web Searching for: {query} ---")
+    results = web_search_tool.run(query)
+    return {**state, "raw_data": f"ข้อมูลจากเว็บ: {results}"}
+
+def check_relevance(state):
+    """ตรวจสอบว่าข้อมูลที่หามาได้เพียงพอที่จะตอบคำถามหรือไม่"""
+    query = state["question"]
+    raw_data = state.get("raw_data", "")
+    
+    if not raw_data or "ไม่พบข้อมูล" in raw_data:
+        return "not_relevant"
+        
+    prompt = f"""
+    คุณเป็นผู้ตรวจสอบข้อมูล จงตอบเพียงคำเดียว 'yes' หรือ 'no'
+    ข้อมูลนี้เพียงพอที่จะตอบคำถาม: "{query}" หรือไม่?
+    ข้อมูล: "{raw_data}"
+    คำตอบ (yes/no):
+    """
     res = llm.invoke(prompt).content.strip().lower()
-    if any(k in res for k in ["sql", "price", "ราคา", "รหัส"]): return "sql"
-    if any(k in res for k in ["greet", "สวัสดี"]): return "greet"
-    return "search"
+    return "relevant" if "yes" in res else "not_relevant"
+
+def llm_router_tool(state):
+    """วิเคราะห์คำถามว่าจะตอบเลย, ใช้ SQL, หรือใช้ RAG/Web Search"""
+    query = state["question"]
+    prompt = f"""
+    วิเคราะห์คำถาม: "{query}"
+    ตอบเพียงคำเดียว:
+    - 'greet' ถ้าเป็นคำถามทั่วไปที่คุณสามารถตอบได้ทันทีโดยไม่ต้องค้นหา (เช่น สวัสดี, คุณคือใคร, 1+1 ได้เท่าไหร่)
+    - 'sql' ถ้าถามหาราคา, รหัสวิชา, หรือจำนวนที่นั่งของวิชาเรียน
+    - 'rag' ถ้าเป็นคำถามเกี่ยวกับเนื้อหาวิชาหรือความรู้อื่นๆ ที่ต้องใช้การค้นหา
+    
+    คำตอบ:
+    """
+    res = llm.invoke(prompt).content.strip().lower()
+    
+    if "sql" in res or any(k in query for k in ["ราคา", "ค่าเรียน", "ที่นั่ง", "รหัส"]): 
+        return "sql"
+    if "greet" in res or any(k in query for k in ["สวัสดี", "ใคร"]): 
+        return "greet"
+    return "rag"
 
 # --- Graph ---
 graph = StateGraph(state_schema=dict)
@@ -103,16 +141,23 @@ graph.add_node("vector_search", vector_search)
 graph.add_node("extract_code", extract_course_code)
 graph.add_node("sql_lookup", sql_lookup)
 graph.add_node("greet_node", greet_node)
+graph.add_node("web_search", web_search)
 graph.add_node("generate_answer", generate_answer)
 
 graph.set_entry_point("greet_node")
+
 graph.add_conditional_edges("greet_node", llm_router_tool, {
-    "search": "vector_search",
+    "rag": "vector_search",
     "sql": "extract_code",
     "greet": "generate_answer"
 })
 
-graph.add_edge("vector_search", "generate_answer")
+graph.add_conditional_edges("vector_search", check_relevance, {
+    "relevant": "generate_answer",
+    "not_relevant": "web_search"
+})
+
+graph.add_edge("web_search", "generate_answer")
 graph.add_edge("extract_code", "sql_lookup")
 graph.add_edge("sql_lookup", "generate_answer")
 graph.add_edge("generate_answer", END)

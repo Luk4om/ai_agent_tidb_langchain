@@ -50,4 +50,4 @@ yarn dev
 - `/public`: ไฟล์สื่อและรูปภาพต่างๆ
 
 ---
-Developed with ❤️ by Your Name
+Developed with ❤️ by Luk4om
