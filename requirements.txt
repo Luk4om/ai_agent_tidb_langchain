@@ -8,4 +8,5 @@ sqlalchemy
 pymysql
 python-dotenv
 uvicorn
-duckduckgo-search
+duckduckgo-search>=6.0.0
+ddgs
