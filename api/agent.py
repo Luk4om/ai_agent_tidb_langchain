@@ -4,7 +4,7 @@ from sqlalchemy import create_engine, text
 from langchain_community.vectorstores import TiDBVectorStore
 from langchain_groq import ChatGroq
 from langchain_huggingface import HuggingFaceEndpointEmbeddings
-from langchain_community.tools import DuckDuckGoSearchRun
+from duckduckgo_search import DDGS
 from langgraph.graph import StateGraph, END
 
 load_dotenv()
@@ -42,7 +42,7 @@ vector_store = TiDBVectorStore(
 )
 
 retriever = vector_store.as_retriever(search_kwargs={"k": 3})
-web_search_tool = DuckDuckGoSearchRun()
+# ใช้ DDGS โดยตรงไม่ต้องผ่าน LangChain Tool
 
 # --- Nodes ---
 
@@ -92,11 +92,19 @@ def generate_answer(state):
     return {"response": response}
 
 def web_search(state):
-    """ค้นหาข้อมูลจากอินเทอร์เน็ต"""
+    """ค้นหาข้อมูลจากอินเทอร์เน็ตโดยใช้ DDGS โดยตรง"""
     query = state["question"]
     print(f"--- Web Searching for: {query} ---")
-    results = web_search_tool.run(query)
-    return {**state, "raw_data": f"ข้อมูลจากเว็บ: {results}"}
+    try:
+        with DDGS() as ddgs:
+            results = [r for r in ddgs.text(query, max_results=5)]
+            if results:
+                context = "\n".join([f"หัวข้อ: {r['title']}\nเนื้อหา: {r['body']}" for r in results])
+                return {**state, "raw_data": f"ข้อมูลจากเว็บ:\n{context}"}
+    except Exception as e:
+        print(f"Web Search Error: {e}")
+    
+    return {**state, "raw_data": "ไม่พบข้อมูลจากอินเทอร์เน็ต"}
 
 def check_relevance(state):
     """ตรวจสอบว่าข้อมูลที่หามาได้เพียงพอที่จะตอบคำถามหรือไม่"""
