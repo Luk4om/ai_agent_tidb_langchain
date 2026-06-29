@@ -17,4 +17,5 @@ dependencies = [
     "sqlalchemy>=2.0.49",
     "tidb-vector>=0.0.15",
     "uvicorn>=0.44.0",
+    "duckduckgo-search>=6.1.7",
 ]

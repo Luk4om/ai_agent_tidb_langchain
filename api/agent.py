@@ -98,6 +98,61 @@ def sql_lookup(state):
 def greet_node(state):
     return {**state, "raw_data": "สวัสดีครับ ผม AI ผู้ช่วยคอยแนะนำรายวิชาครับ"}
 
+def web_search(state):
+    """ค้นหาข้อมูลจากอินเทอร์เน็ตโดยใช้ DDGS โดยตรง (มีระบบแปลคำค้นหาเป็นภาษาอังกฤษอัตโนมัติเพื่อผลลัพธ์ที่แม่นยำ)"""
+    query = state["question"]
+    search_query = query
+    
+    # 1. แปลคำถามภาษาไทยเป็นอังกฤษเพื่อความแม่นยำในการค้นหาเว็บ
+    try:
+        translate_prompt = f"""
+        Translate the following Thai search query into a concise English search term suitable for search engines.
+        Respond ONLY with the translated English search term, no quotes, no explanation.
+
+        Query: "{query}"
+        English Search Term:
+        """
+        english_term = llm.invoke(translate_prompt).content.strip()
+        if english_term and len(english_term) > 2:
+            search_query = english_term
+    except Exception:
+        pass
+
+    # 2. ค้นหาใน DuckDuckGo
+    try:
+        from duckduckgo_search import DDGS
+        with DDGS() as ddgs:
+            results = list(ddgs.text(search_query, max_results=3))
+            if results:
+                context = "\n".join([f"หัวข้อ/Title: {r['title']}\nเนื้อหา/Snippet: {r['body']}" for r in results])
+                return {**state, "raw_data": f"ข้อมูลจากเว็บ:\n{context}"}
+    except Exception as e:
+        print(f"Web Search Error: {e}")
+    
+    return {**state, "raw_data": "ไม่พบข้อมูลจากอินเทอร์เน็ต"}
+
+def check_relevance(state):
+    """ตรวจสอบว่าข้อมูลที่หามาได้เพียงพอที่จะตอบคำถามหรือไม่"""
+    query = state["question"]
+    raw_data = state.get("raw_data", "")
+    
+    if not raw_data or "ไม่พบข้อมูล" in raw_data:
+        return "not_relevant"
+        
+    prompt = f"""
+    คุณเป็นผู้ตรวจสอบข้อมูล จงตอบเพียงคำเดียว 'yes' หรือ 'no' เท่านั้น
+    ข้อมูลนี้มีความเกี่ยวข้องและเพียงพอที่จะตอบคำถาม: "{query}" หรือไม่?
+    ข้อมูลที่หาได้: "{raw_data}"
+    คำตอบ (yes/no):
+    """
+    try:
+        res = llm.invoke(prompt).content.strip().lower()
+        if "yes" in res:
+            return "relevant"
+    except Exception:
+        pass
+    return "not_relevant"
+
 def generate_answer(state):
     """รวบรวมข้อมูลดิบมาตอบให้เป็นธรรมชาติ"""
     query = state["question"]
@@ -140,6 +195,7 @@ graph.add_node("vector_search", vector_search)
 graph.add_node("extract_code", extract_course_code)
 graph.add_node("sql_lookup", sql_lookup)
 graph.add_node("greet_node", greet_node)
+graph.add_node("web_search", web_search)
 graph.add_node("generate_answer", generate_answer)
 
 graph.set_entry_point("greet_node")
@@ -149,7 +205,13 @@ graph.add_conditional_edges("greet_node", llm_router_tool, {
     "greet": "generate_answer"
 })
 
-graph.add_edge("vector_search", "generate_answer")
+# เช็คความเกี่ยวข้องของข้อมูล หากไม่เกี่ยวหรือไม่เพียงพอ ให้ไป Web Search
+graph.add_conditional_edges("vector_search", check_relevance, {
+    "relevant": "generate_answer",
+    "not_relevant": "web_search"
+})
+
+graph.add_edge("web_search", "generate_answer")
 graph.add_edge("extract_code", "sql_lookup")
 graph.add_edge("sql_lookup", "generate_answer")
 graph.add_edge("generate_answer", END)
