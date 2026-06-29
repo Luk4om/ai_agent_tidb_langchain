@@ -86,12 +86,12 @@ def sql_lookup(state):
     if not code: return {**state, "raw_data": "ไม่พบรหัสวิชา"}
     with engine.connect() as conn:
         result = conn.execute(
-            text(f"SELECT course_code, name, fee, capacity, enrolled FROM courses WHERE UPPER(course_code)=:code"), 
+            text(f"SELECT course_code, name, description, fee, capacity, enrolled FROM courses WHERE UPPER(course_code)=:code"), 
             {"code": code}
         ).fetchone()
         if result:
-            row_code, name, fee, capacity, enrolled = result
-            data = f"รหัส: {row_code}, ชื่อ: {name}, ค่าเรียน: {fee} บาท, ที่นั่ง: {enrolled}/{capacity}"
+            row_code, name, desc, fee, capacity, enrolled = result
+            data = f"รหัส: {row_code}, ชื่อ: {name}, รายละเอียดวิชา: {desc}, ค่าเรียน: {fee} บาท, ที่นั่ง: {enrolled}/{capacity}"
             return {**state, "raw_data": data}
     return {**state, "raw_data": "ไม่พบข้อมูลรายวิชานี้ในระบบฐานข้อมูล"}
 
@@ -159,9 +159,15 @@ def generate_answer(state):
     raw_data = state.get("raw_data", "")
     
     prompt = f"""
-    จงตอบคำถามผู้ใช้โดยใช้ข้อมูลที่ให้มาเท่านั้น ให้ตอบเป็นภาษาไทยที่สุภาพและเป็นธรรมชาติ
     คำถาม: "{query}"
-    ข้อมูล: "{raw_data}"
+    ข้อมูลอ้างอิง: "{raw_data}"
+    
+    บทบาท: คุณคือ AI ผู้ช่วยผู้มีความรอบรู้ แนะนำรายวิชาเรียน และตอบคำถามทั่วไปได้
+    กติกาการตอบภาษาไทย:
+    1. หากข้อมูลอ้างอิงมีเนื้อหาที่เกี่ยวข้องกับวิชาเรียนหรือคำถาม ให้ใช้ข้อมูลอ้างอิงนั้นมาเป็นข้อมูลหลักในการอธิบายคำตอบ
+    2. หากข้อมูลอ้างอิงระบุว่า "ไม่พบข้อมูลจากอินเทอร์เน็ต" หรือ "ไม่พบข้อมูล" หรือเป็นข้อมูลที่ว่างเปล่า/ไม่เกี่ยวข้องกับคำถามเลย ให้คุณใช้ความรู้ทั่วไปของตนเอง (General Knowledge) ตอบคำถามให้ถูกต้องที่สุดและเป็นประโยชน์แก่ผู้ใช้ แทนการตอบปฏิเสธ
+    3. ตอบเป็นภาษาไทยด้วยความสุภาพ เป็นธรรมชาติ และเป็นกันเอง
+    
     คำตอบ:
     """
     response = llm.invoke(prompt).content.strip()
