@@ -12,12 +12,20 @@ load_dotenv()
 
 # --- คอนฟิกความปลอดภัยสำหรับ SSL ---
 SSL_CA_CONTENT = os.getenv("TIDB_SSL_CA_CONTENT")
-# ใช้ tempfile เพื่อรองรับทั้ง Windows (Local) และ Linux (Vercel)
 ca_path = os.path.join(tempfile.gettempdir(), "isrgrootx1.pem")
 
 if SSL_CA_CONTENT:
-    with open(ca_path, "w", encoding="utf-8") as f:
-        f.write(SSL_CA_CONTENT)
+    try:
+        with open(ca_path, "w", encoding="utf-8") as f:
+            f.write(SSL_CA_CONTENT)
+    except Exception as e:
+        print(f"Warning: Failed to write SSL_CA_CONTENT to {ca_path}: {e}")
+
+# Fallback: หากไม่มีเนื้อหาไฟล์ CA ใน Env หรือบันทึกไม่สำเร็จ ให้ใช้ไฟล์ใน root ของโปรเจกต์
+if not os.path.exists(ca_path):
+    local_ca = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "isrgrootx1.pem"))
+    if os.path.exists(local_ca):
+        ca_path = local_ca
 
 TIDB_CONNECTION_STRING = os.getenv("TIDB_CONNECTION_STRING")
 
