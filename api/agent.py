@@ -1,4 +1,6 @@
 import os
+import tempfile
+import re
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 from langchain_community.vectorstores import TiDBVectorStore
@@ -10,11 +12,11 @@ load_dotenv()
 
 # --- คอนฟิกความปลอดภัยสำหรับ SSL ---
 SSL_CA_CONTENT = os.getenv("TIDB_SSL_CA_CONTENT")
-# บังคับใช้ /tmp/ เพื่อให้เขียนไฟล์ได้บน Vercel
-ca_path = "/tmp/isrgrootx1.pem" 
+# ใช้ tempfile เพื่อรองรับทั้ง Windows (Local) และ Linux (Vercel)
+ca_path = os.path.join(tempfile.gettempdir(), "isrgrootx1.pem")
 
 if SSL_CA_CONTENT:
-    with open(ca_path, "w") as f:
+    with open(ca_path, "w", encoding="utf-8") as f:
         f.write(SSL_CA_CONTENT)
 
 TIDB_CONNECTION_STRING = os.getenv("TIDB_CONNECTION_STRING")
@@ -23,7 +25,7 @@ TIDB_CONNECTION_STRING = os.getenv("TIDB_CONNECTION_STRING")
 llm = ChatGroq(model="llama-3.1-8b-instant", groq_api_key=os.getenv("GROQ_API_KEY"))
 embeddings = HuggingFaceEndpointEmbeddings(
     huggingfacehub_api_token=os.getenv("HF_TOKEN"),
-    model="sentence-transformers/all-MiniLM-L6-v2"
+    model="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 )
 
 # --- ตั้งค่าฐานข้อมูล ---
@@ -52,10 +54,23 @@ def vector_search(state):
 
 def extract_course_code(state):
     query = state["question"]
-    docs = retriever.invoke(query)
-    for doc in docs:
-        if "course_code" in doc.metadata:
-            return {**state, "course_code": doc.metadata["course_code"]}
+    # 1. พยายามหาด้วย regex ก่อน (เช่น CS101, cs 102)
+    match = re.search(r'\bCS[- ]?(\d{3})\b', query, re.IGNORECASE)
+    if match:
+        code = f"CS{match.group(1)}"
+        return {**state, "course_code": code}
+    
+    # 2. หากหาไม่เจอ ให้โมเดลช่วยสกัดความต้องการรหัสวิชา
+    try:
+        prompt = f"ระบุรหัสวิชาที่เป็นภาษาอังกฤษ (เช่น CS101) จากคำถามต่อไปนี้ หากไม่มีในคำถาม ให้ตอบกลับคำว่า None เพียงอย่างเดียว: {query}"
+        res = llm.invoke(prompt).content.strip()
+        match = re.search(r'\bCS[- ]?(\d{3})\b', res, re.IGNORECASE)
+        if match:
+            code = f"CS{match.group(1)}"
+            return {**state, "course_code": code}
+    except Exception:
+        pass
+        
     return {**state, "course_code": None}
 
 def sql_lookup(state):
@@ -91,11 +106,25 @@ def generate_answer(state):
 
 def llm_router_tool(state):
     query = state["question"]
-    prompt = f"ตอบเพียงคำเดียว (greet, sql, search): {query}"
-    res = llm.invoke(prompt).content.strip().lower()
-    if any(k in res for k in ["sql", "price", "ราคา", "รหัส"]): return "sql"
-    if any(k in res for k in ["greet", "สวัสดี"]): return "greet"
-    return "search"
+    prompt = f"""
+    คุณเป็นผู้ช่วยระบบจัดเส้นทางคำถาม (Router)
+    หน้าที่ของคุณคือแยกประเภทคำถามของผู้ใช้แล้วตอบด้วยคำสำคัญเพียงคำเดียวเท่านั้น:
+    - ตอบ 'greet' หากเป็นการทักทายทั่วไป (เช่น สวัสดี, สบายดีไหม)
+    - ตอบ 'sql' หากเป็นคำถามที่ต้องการค้นหาข้อมูลเฉพาะ เช่น ราคา, ค่าธรรมเนียม, จำนวนที่นั่ง, ความจุ, จำนวนผู้ลงทะเบียนเรียน, หรือถามเรื่องราคาของรหัสวิชานั้นๆ
+    - ตอบ 'search' หากเป็นการถามรายละเอียดเกี่ยวกับวิชาว่าเรียนอะไรบ้าง, แนะนำวิชา, หรือต้องการข้อมูลเชิงวิชาการ/เนื้อหารายละเอียดวิชา
+    
+    คำถาม: "{query}"
+    คำตอบ (ตอบคำเดียวกด: greet, sql, search):
+    """
+    try:
+        res = llm.invoke(prompt).content.strip().lower()
+        if "sql" in res:
+            return "sql"
+        if "greet" in res:
+            return "greet"
+        return "search"
+    except Exception:
+        return "search"
 
 # --- Graph ---
 graph = StateGraph(state_schema=dict)

@@ -10,7 +10,7 @@ load_dotenv()
 # ใช้ Embedding ตัวเดียวกับ agent.py
 embeddings = HuggingFaceEndpointEmbeddings(
     huggingfacehub_api_token=os.getenv("HF_TOKEN"),
-    model="sentence-transformers/all-MiniLM-L6-v2"
+    model="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 )
 tidb_connection_string = os.getenv("TIDB_CONNECTION_STRING")
 
